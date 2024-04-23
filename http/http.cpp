@@ -8,10 +8,14 @@
 #include<errno.h>
 #include<string.h>
 #include<fcntl.h>
+#include <unordered_map>
+#include<string>
+#include <regex>
 #define BUFFER_SIZE 4096/*读缓冲区大小*/
 /*
 主状态机的两种可能状态，分别表示：当前正在分析请求行，当前正在分析头部字段
 */
+std::unordered_map<std::string, std::string> header_;
 enum CHECK_STATE{CHECK_STATE_REQUESTLINE=0,CHECK_STATE_HEADER};
 
 /*
@@ -88,7 +92,8 @@ LINE_STATUS parse_line(char*buffer,int&checked_index,int&read_index)
 
 /*分析请求行*/
 HTTP_CODE parse_requestline(char*temp,CHECK_STATE&checkstate){
-    char*url=strpbrk(temp,"\t");
+    //请求行中最先含有空格和\t任一字符的位置并返回
+    char*url=strpbrk(temp," \t");
     /*如果请求行中没有空白字符或“\t”字符，则HTTP请求必有问题*/
     if(!url){
         return BAD_REQUEST;
@@ -102,13 +107,13 @@ HTTP_CODE parse_requestline(char*temp,CHECK_STATE&checkstate){
     else{
         return BAD_REQUEST;
     }
-    url+=strspn(url,"\t");
-    char*version=strpbrk(url,"\t");
+    url+=strspn(url," \t");
+    char*version=strpbrk(url," \t");
     if(!version){
         return BAD_REQUEST;
     }
     *version++='\0';
-    version+=strspn(version,"\t");
+    version+=strspn(version," \t");
     /*仅支持HTTP/1.1*/
     if(strcasecmp(version,"HTTP/1.1")!=0){
         return BAD_REQUEST;
@@ -129,17 +134,23 @@ HTTP_CODE parse_requestline(char*temp,CHECK_STATE&checkstate){
 /*分析头部字段*/
 HTTP_CODE parse_headers(char*temp){
     /*遇到一个空行，说明我们得到了一个正确的HTTP请求*/
+    std::string line = temp;
     if(temp[0]=='\0'){
         return GET_REQUEST;
     }
     /*处理“HOST”头部字段*/
     else if(strncasecmp(temp,"Host:",5)==0){
         temp+=5;
-        temp+=strspn(temp,"\t");
+        temp+=strspn(temp," \t");
         printf("the request host is:%s\n",temp);
     }
-    else{
-        printf("I can not handle this header\n");
+    //解析请求头部连接字段
+    else {
+        std::regex patten("^([^:]*): ?(.*)$");
+        std::smatch subMatch;
+        if(std::regex_match(line, subMatch, patten)) {
+            header_[subMatch[1]] = subMatch[2];
+        }
     }
     return NO_REQUEST;
 }
@@ -189,12 +200,17 @@ HTTP_CODE parse_content(char*buffer, int& checked_index, CHECK_STATE& checkstate
 }
 int main(int argc,char*argv[]){
     // 接收参数
-    if(argc<=2){
-        printf("usage:%s ip_address port_number\n",basename(argv[0]));
-        return 1;
-    }
-    const char*ip=argv[1];
-    int port=atoi(argv[2]);
+    // if(argc<=2){
+    //     printf("usage:%s ip_address port_number\n",basename(argv[0]));
+    //     return 1;
+    // }
+    // const char*ip=argv[1];
+    // int port=atoi(argv[2]);
+
+    // 调试用
+    const char*ip="0.0.0.0";
+    int port = 9000;
+
     /*初始化*/
     struct sockaddr_in address;
     bzero(&address,sizeof(address));
@@ -232,6 +248,7 @@ int main(int argc,char*argv[]){
         /*循环读取客户数据并分析之*/
         while(1){
             data_read=recv(fd,buffer+read_index,BUFFER_SIZE-read_index,0);
+            printf("读取到 %d 数据\n", data_read);
             if(data_read==-1){
                 printf("reading failed\n");
                 break;
