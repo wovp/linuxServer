@@ -51,6 +51,10 @@
         "ctime": "cpp",
         "map": "cpp",
         "sstream": "cpp",
-        "io_context": "cpp"
+        "io_context": "cpp",
+        "executor": "cpp",
+        "condition_variable": "cpp",
+        "timer": "cpp",
+        "future": "cpp"
     }
 }
